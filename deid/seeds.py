@@ -54,7 +54,7 @@ aiaaUCmerced|UC Merced|igdtuw|IGDTUW|team751|tertiarycourses|Tertiary Courses|tm
 cmuphyscomp|eMotres|eai-yeslab|effibot|evadne|fab-machines|htx-studio|huggingface|Hugging Face
 input-inc|iotdesignshop|jitx-inc|JITX|materializr-cad|mekanika-dev|Mekanika|modernecotech|obotx
 omicronrobot|sonicavionics|stadtulm|OSU-USLI-18|Oregon State|RWU-R2M|Phersax|MrAsana|AMBER Lab
-Kentucky|Glowforge|Precious Plastic|precious-plastic|Dassault Falcon
+Glowforge|Precious Plastic|precious-plastic|Dassault Falcon
 """
 
 # person names / handles visible in folder names
@@ -80,8 +80,8 @@ mesoSPIM|ENZEL|visebase|modulathe|kbd2600|ZACplus|upklib|noBS-CAD|HatsuHand|Hats
 SV06|Pivot-Lock|newton-instrumentation|HexaHive|Anduril|openFrame|opentakeoff|OpenSourceLeg
 LearningTower|learning-tower|Remorque PM|PowerCube6|PowerCube|CEB Press|ThrowBot|Tiny Oat Collider
 FENRIR|Trillium II|Pipettin-bot|pipettin-bot|diot-crate|wr-switch|OpenClawd|clawdsolana|Plug.ar
-omi|Omi|LOCILAMP|CoronaLab|lerobot|cadgenbench|benchcad|SNAILS|MAPLEHardware|spotlight-hardware
-Implantables|Pyramid-PCB|smb_assembly|openhand|OpenHand|CRAFT|tegu|Bear upgrade|IRIS|iris-hw
+LOCILAMP|lerobot|cadgenbench|benchcad|MAPLEHardware
+Pyramid-PCB-Inspection|smb_assembly_manual|openhand-hardware|iris-hw|loong|Loong
 """
 
 GENERIC_STOP = {

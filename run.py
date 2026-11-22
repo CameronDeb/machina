@@ -63,6 +63,29 @@ def _discover_one(args):
         return rel, found, f"error {e!r}"
 
 
+import re  # noqa: E402
+
+TOKEN_SPLIT = re.compile(r"[^0-9a-zÀ-￿]+")
+STRUCTURAL = {"sources", "source", "github", "gitlab", "web", "catalog", "existing", "archives", "corpus",
+              "extracted", "master", "main", "input", "output", "cad", "step", "parts", "part"}
+STOPWORDS = set("""a an the of and or for to in on at by with from is are was be as it this that not no
+de la le el en di da der die das und von zu mit""".split())
+
+
+def path_vocabulary(paths, min_roots=4):
+    """Tokens used in file/folder names of several unrelated sources: plain vocabulary."""
+    seen = collections.defaultdict(set)
+    for p in paths:
+        segs = p.split("/")
+        root = "/".join(segs[:3])
+        owner = segs[2].split("__")[0].lower() if len(segs) > 2 else ""
+        for s in segs[1:]:
+            for tok in TOKEN_SPLIT.split(s.lower()):
+                if len(tok) >= 2 and tok != owner:
+                    seen[tok].add(root)
+    return {t for t, r in seen.items() if len(r) >= min_roots}
+
+
 def build_registry(paths, found_by_file, work):
     owners = seeds.owners_from_paths(paths)
     domains = seeds.domains_from_paths(paths)
@@ -98,8 +121,22 @@ def build_registry(paths, found_by_file, work):
                 fields.add(v)
         elif kind == "email":
             emails.add(v)
+    vocab = path_vocabulary(paths)
+
+    def is_vocab(t):
+        toks = [x for x in TOKEN_SPLIT.split(t.lower()) if x]
+        if not toks:
+            return True
+        if t.lower() in STRUCTURAL:
+            return True
+        return all(x in vocab or x in STOPWORDS or x.isdigit() for x in toks)
+
+    dropped = sorted(t for t in users | fields if is_vocab(t))
+    users = {t for t in users if not is_vocab(t)}
+    fields = {t for t in fields if not is_vocab(t)}
     terms |= users
     terms |= fields
+    terms = {t for t in terms if t.lower() not in STRUCTURAL}
     for e in emails:
         loose.add(e)
         local, _, dom = e.partition("@")
@@ -126,6 +163,7 @@ def build_registry(paths, found_by_file, work):
             "fields": sorted(fields),
             "fields_weak": sorted({v for (k, v) in counts if k == "field"}),
             "emails": sorted(emails),
+            "dropped_as_vocabulary": dropped,
         },
     }
     os.makedirs(work, exist_ok=True)
@@ -148,9 +186,12 @@ def cmd_discover(a):
     found_by_file = {}
     notes = {}
     todo = []
+    rescan = tuple(x.strip().lower() for x in (a.rescan or "").split(",") if x.strip())
     for p in paths:
         size = os.path.getsize(winpath.lp(a.input, p))
         c = cache.get(p)
+        if rescan and p.lower().endswith(rescan):
+            c = None
         if c and c[0] == size:
             if c[1]:
                 found_by_file[p] = {k: set(v) for k, v in c[1].items()}
@@ -213,6 +254,9 @@ def rename_path(rel, m, owners_mode=True):
     out = []
     for i, s in enumerate(segs):
         is_file = i == len(segs) - 1
+        if owners_mode and not is_file and (i == 0 or (i == 1 and segs[0] == "sources")):
+            out.append(s)
+            continue
         if owners_mode and ((i == 2 and segs[0] == "sources" and segs[1] in ("github", "gitlab"))
                             or (i == 1 and segs[0] == "archives")):
             parts = s.split("__")
@@ -270,14 +314,21 @@ def cmd_rewrite(a):
     t0 = time.time()
     log = open(os.path.join(a.work, "results.tsv"), "w", encoding="utf-8")
     n_changed = n_err = 0
-    with Pool(a.jobs, initializer=_init, initargs=(a.work,)) as pool:
-        for i, (rel, new_rel, size, changed, note) in enumerate(pool.imap_unordered(
-                _rewrite_one, [(a.input, a.output, p) for p in paths], chunksize=8)):
-            log.write(f"{rel}\t{new_rel}\t{size}\t{int(changed)}\t{note}\n")
-            n_changed += changed
-            n_err += new_rel is None
-            if i % 5000 == 0:
-                print(f"  rewrite {i}/{len(paths)} changed={n_changed} err={n_err} {time.time() - t0:.0f}s", flush=True)
+    big = 200 * 1024 ** 2
+    sizes = {p: os.path.getsize(winpath.lp(a.input, p)) for p in paths}
+    small_paths = [p for p in paths if sizes[p] <= big]
+    big_paths = [p for p in paths if sizes[p] > big]
+    for batch, jobs, chunk in ((small_paths, a.jobs, 8), (big_paths, min(3, a.jobs), 1)):
+        if not batch:
+            continue
+        with Pool(jobs, initializer=_init, initargs=(a.work,)) as pool:
+            for i, (rel, new_rel, size, changed, note) in enumerate(pool.imap_unordered(
+                    _rewrite_one, [(a.input, a.output, p) for p in batch], chunksize=chunk)):
+                log.write(f"{rel}\t{new_rel}\t{size}\t{int(changed)}\t{note}\n")
+                n_changed += changed
+                n_err += new_rel is None
+                if i % 5000 == 0:
+                    print(f"  rewrite {i}/{len(batch)} changed={n_changed} err={n_err} {time.time() - t0:.0f}s", flush=True)
     log.close()
     print(f"done: changed={n_changed} errors={n_err} {time.time() - t0:.0f}s", flush=True)
 
@@ -291,6 +342,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument("--only", help="substring filter on paths (testing)")
     ap.add_argument("--fresh", action="store_true", help="ignore the discovery cache")
+    ap.add_argument("--rescan", help="comma-separated extensions to rescan even if cached")
     a = ap.parse_args()
     if a.cmd in ("discover", "all"):
         cmd_discover(a)

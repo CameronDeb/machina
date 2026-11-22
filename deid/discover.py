@@ -98,13 +98,28 @@ def find_users(data):
     return {u.strip() for u in out if u.strip() and u.strip().lower() not in GENERIC_USERS and not u.strip().startswith(".")}
 
 
+def _email_windows(data):
+    i = data.find(b"@")
+    last = -1
+    while i >= 0:
+        a = max(i - 70, last)
+        yield data[a:i + 260]
+        last = i + 260
+        i = data.find(b"@", i + 1)
+        if i >= 0 and i < last:
+            i = data.find(b"@", last)
+
+
 def find_emails(data):
     out = set()
-    for m in EMAIL8.finditer(data):
-        s = m.group(0)
-        if EMAIL_FALSE.search(s):
-            continue
-        out.add(s.decode("ascii", "replace"))
+    if b"@" not in data:
+        return out
+    for win in _email_windows(data):
+        for m in EMAIL8.finditer(win):
+            s = m.group(0)
+            if EMAIL_FALSE.search(s):
+                continue
+            out.add(s.decode("ascii", "replace"))
     if b"@\x00" in data:
         for m in EMAIL16.finditer(data):
             out.add(m.group(0).decode("utf-16-le", "replace"))

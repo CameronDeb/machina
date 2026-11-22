@@ -187,8 +187,20 @@ def main():
         if h and h[0] == size and (len(h[1]) != 32 or md5(full) == h[1]):
             continue
         todo.append((full, key, size))
-    # README and code first, then corpus smallest first
-    todo.sort(key=lambda x: (not x[1].startswith(prefix + "corpus/") and 0 or 1, x[2]))
+    # README and code first, then corpus by size / value weight
+    def weight(key):
+        k = key.lower()
+        for exts, w in (((".pdf", ".sldprt", ".sldasm", ".slddrw", ".ipt", ".iam", ".idw", ".ipn", ".zip",
+                          ".7z", ".gz", ".tar", ".z", ".rar", ".par", ".asm", ".dft", ".psm", ".dwg", ".dxf"), 3.0),
+                        ((".fcstd", ".3mf", ".f3d", ".f3z", ".svg", ".png", ".jpg", ".jpeg", ".txt", ".md",
+                          ".csv", ".xlsx", ".docx"), 2.0),
+                        ((".step", ".stp", ".igs", ".iges", ".x_t", ".sat", ".catpart", ".prt"), 1.5),
+                        ((".stl", ".obj", ".wrl", ".ply", ".off", ".u3d"), 0.5)):
+            if k.endswith(exts):
+                return w
+        return 1.0
+
+    todo.sort(key=lambda x: (0 if not x[1].startswith(prefix + "corpus/") else 1, x[2] / weight(x[1])))
     print(f"{len(items)} files, {len(todo)} to send ({sum(x[2] for x in todo)/1e9:.1f} GB)", flush=True)
     sent = copied = 0
     sent_b = 0
