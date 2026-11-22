@@ -72,6 +72,10 @@ STOPWORDS = set("""a an the of and or for to in on at by with from is are was be
 de la le el en di da der die das und von zu mit""".split())
 
 
+with open(os.path.join(HERE, "deid", "data", "en20k.txt"), encoding="utf-8") as _f:
+    ENGLISH = {w.strip().lower() for w in _f if w.strip()}
+
+
 def path_vocabulary(paths, min_roots=4):
     """Tokens used in file/folder names of several unrelated sources: plain vocabulary."""
     seen = collections.defaultdict(set)
@@ -127,6 +131,8 @@ def build_registry(paths, found_by_file, work):
         toks = [x for x in TOKEN_SPLIT.split(t.lower()) if x]
         if not toks:
             return True
+        if len(toks) == 1 and toks[0] in ENGLISH:
+            return True
         if t.lower() in STRUCTURAL:
             return True
         return all(x in vocab or x in STOPWORDS or x.isdigit() for x in toks)
@@ -142,7 +148,7 @@ def build_registry(paths, found_by_file, work):
         local, _, dom = e.partition("@")
         if dom.lower() not in D.EMAIL_PROVIDERS and "." in dom:
             loose.add(dom)
-        if len(local) >= 5 and not D.is_generic(local) and local.lower() not in (
+        if len(local) >= 5 and not D.is_generic(local) and local.lower() not in ENGLISH and local.lower() not in (
                 "info", "support", "sales", "contact", "admin", "office", "hello", "mail", "service", "noreply"):
             terms.add(local)
     weak = {v for (k, v) in counts if k == "field"}

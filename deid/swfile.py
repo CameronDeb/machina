@@ -82,8 +82,16 @@ def rewrite(data, fn):
             continue
         comp = _deflate(new, cs)
         if len(comp) > cs:
-            failed += 1
-            continue
+            # last resort: blank the changed bytes; a run of x deflates well
+            alt = bytearray(new)
+            for j in range(len(alt)):
+                if alt[j] != payload[j]:
+                    alt[j] = 0x78
+            new = bytes(alt)
+            comp = _deflate(new, cs)
+            if len(comp) > cs:
+                failed += 1
+                continue
         if buf is None:
             buf = bytearray(data)
         buf[start:start + cs] = comp + b"\x00" * (cs - len(comp))

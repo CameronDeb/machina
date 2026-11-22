@@ -61,7 +61,9 @@ Glowforge|Precious Plastic|precious-plastic|Dassault Falcon
 PEOPLE = """
 Dominique Lachiver|Lachiver|Maximilian Behm|Behm|Maxwell Lohss|Lohss|Manfred_Osti|Manfred Osti
 Sanjeev_Trika|Sanjeev Trika|Randy_Wilson|Randy Wilson|CICIRELLO|Cicirello|sbrooks1|sbrooks2
-regli|foralex|Huruy_H|Huruy|Guilherme|Bishwajeet|Jeremy|Himalia|Ziegler
+regli|foralex|Huruy_H|Huruy|Guilherme|Bishwajeet|Jeremy|Himalia|Ziegler|Bill_Regli|Bill Regli
+Pete_Brown|Pete Brown|Tom_Kramer|Tom Kramer|Kramer|Gaithersburg|Edmund_Optics|Edmund Optics
+Fischer_Elektronik|Fischer Elektronik|Keysight_Instruments|Keysight|Lorenzetti|Okika
 """
 
 # identifying project / product names

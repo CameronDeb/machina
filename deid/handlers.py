@@ -140,7 +140,7 @@ def xml_fields(data, ctx, local_terms, rdf_ok=False):
 
 # ---------------------------------------------------------------- STEP
 
-STEP_FN = re.compile(rb"FILE_NAME\s*\(", re.I)
+STEP_FN = re.compile(rb"FILE_(?:NAME|IDENTIFICATION)\s*\(", re.I)
 
 
 def _step_strings(hdr, start):
@@ -1036,7 +1036,7 @@ def process(data, relpath, ctx):
             return sevenz_container(data, ctx, relpath)
         if ext == ".tar" or data[257:262] == b"ustar":
             return tar_container(data, ctx, relpath)
-        if ext in (".step", ".stp", ".p21") or head.startswith(b"ISO-10303"):
+        if ext in (".step", ".stp", ".p21") or head.startswith(b"ISO-10303") or head.startswith(b"STEP;"):
             return step(data, ctx)
         if ext in (".igs", ".iges"):
             return iges(data, ctx)
