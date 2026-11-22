@@ -50,6 +50,39 @@ def _right_ok(last, nxt, nxt2):
     return False
 
 
+_PRINT = bytes(range(256)).translate(None, bytes(range(0x20, 0x7F)) + bytes([9, 10, 13]))
+
+
+def looks_binary(data):
+    head = data[:8192]
+    if not head:
+        return False
+    if b"\x00" in head:
+        return True
+    bad = len(head) - len(head.translate(None, _PRINT))
+    return bad > len(head) * 0.10
+
+
+def _isprint(b):
+    return 0x20 <= b < 0x7F or b in (9, 10, 13)
+
+
+def _in_text_run(src, s, e):
+    """True if [s,e) sits in a run of printable ASCII long enough to be real text."""
+    L = len(src)
+    a = s
+    while a > 0 and s - a < 32 and _isprint(src[a - 1]):
+        a -= 1
+    b = e
+    while b < L and b - e < 32 and _isprint(src[b]):
+        b += 1
+    run = b - a
+    n = e - s
+    if n >= 6:
+        return run >= 6
+    return run >= n + 3
+
+
 class Matcher:
     """Replaces every registered identity with its pseudonym.
 
@@ -82,9 +115,9 @@ class Matcher:
     def __bool__(self):
         return bool(self.terms)
 
-    def _spans(self, low, auto, width, data=None):
-        src = low if data is None else data
+    def _spans(self, low, auto, width, data=None, binary=False):
         """Non-overlapping, leftmost-longest matches -> (start, end, key)."""
+        src = low if data is None else data
         cands = []
         for end, (k, n, loose) in auto.iter(low.decode("latin1")):
             s = end - n + 1
@@ -113,14 +146,18 @@ class Matcher:
                     first, last = src[s], src[e - 2]
                 if not (_left_ok(prev, first) and _right_ok(last, nxt, nxt2)):
                     continue
+            if binary and width == 1 and not _in_text_run(src, s, e):
+                continue
             out.append((s, e, k))
             last_end = e
         return out
 
-    def replace(self, data, utf16=True, fixed=True):
+    def replace(self, data, utf16=True, fixed=True, binary=None):
         """Replacement in raw bytes, length-preserving when fixed. Returns (data, n)."""
         if not self.terms or not data:
             return data, 0
+        if binary is None:
+            binary = looks_binary(data)
         low = data.lower()
         n = 0
         buf = None
@@ -137,7 +174,7 @@ class Matcher:
                 pos = e
             parts.append(data[pos:])
             return b"".join(parts), len(spans)
-        for s, e, k in self._spans(low, self.a8, 1, data):
+        for s, e, k in self._spans(low, self.a8, 1, data, binary):
             if buf is None:
                 buf = bytearray(data)
             seg = bytes(data[s:e])

@@ -336,11 +336,30 @@ def _solid_png(w, h, rgb=(235, 235, 235)):
 
 # ---------------------------------------------------------------- OLE
 
+FMTID_SUMMARY = "f29f85e0-4ff9-1068-ab91-08002b27b3d9"
+FMTID_DOCSUM = "d5cdd502-2e9c-101b-9397-08002b2cf9ae"
+FMTID_USER = "d5cdd505-2e9c-101b-9397-08002b2cf9ae"
+FMTID_INV_DESIGN = "32853f0f-3444-11d1-9e93-0060b03c1ca6"
+FMTID_INV_SUMMARY = "f29f85e0-4ff9-1068-ab91-08002b27b3d9"
+# string pids that hold a person or organisation, per property set
+PEOPLE_PIDS = {
+    FMTID_SUMMARY: {4, 8},                     # author, last saved by
+    FMTID_DOCSUM: {14, 15},                    # manager, company
+    FMTID_INV_DESIGN: {10, 12, 30, 34, 41, 42, 43, 48},  # checked/approved by, vendor, designer, engineer, authority, manufacturer
+}
+
+
+def _guid(b):
+    import uuid
+    return str(uuid.UUID(bytes_le=bytes(b)))
+
+
 def _propset_values(buf):
-    """Yield (offset, length, encoding, pid) for string properties in a property-set stream."""
+    """Yield (offset, length, encoding, pid, fmtid, name) for string properties."""
     try:
         nsec = struct.unpack_from("<I", buf, 24)[0]
         for k in range(min(nsec, 4)):
+            fmtid = _guid(buf[28 + k * 20:28 + k * 20 + 16])
             off = struct.unpack_from("<I", buf, 28 + k * 20 + 16)[0]
             size, n = struct.unpack_from("<II", buf, off)
             codepage = 1252
@@ -353,6 +372,22 @@ def _propset_values(buf):
                     t = struct.unpack_from("<H", buf, p)[0]
                     if t == 2:
                         codepage = struct.unpack_from("<h", buf, p + 4)[0] & 0xFFFF
+            names = {}
+            for pid, p in entries:
+                if pid == 0:  # dictionary: count, then (pid, len, name)
+                    cnt = struct.unpack_from("<I", buf, p)[0]
+                    q = p + 4
+                    for _ in range(min(cnt, 2000)):
+                        npid, ln = struct.unpack_from("<II", buf, q)
+                        q += 8
+                        if codepage == 1200:
+                            nm = buf[q:q + ln * 2].decode("utf-16-le", "replace")
+                            q += ln * 2
+                            q += (-q) % 4
+                        else:
+                            nm = buf[q:q + ln].decode("cp1252", "replace")
+                            q += ln
+                        names[npid] = nm.split("\x00")[0]
             for pid, p in entries:
                 if pid < 2:
                     continue
@@ -360,12 +395,74 @@ def _propset_values(buf):
                 if t == 30:
                     ln = struct.unpack_from("<I", buf, p + 4)[0]
                     enc = "utf-16-le" if codepage == 1200 else ("utf-8" if codepage == 65001 else "cp1252")
-                    yield p + 8, ln, enc, pid, k
+                    yield p + 8, ln, enc, pid, fmtid, names.get(pid, "")
                 elif t == 31:
                     ln = struct.unpack_from("<I", buf, p + 4)[0]
-                    yield p + 8, ln * 2, "utf-16-le", pid, k
+                    yield p + 8, ln * 2, "utf-16-le", pid, fmtid, names.get(pid, "")
     except Exception:
         return
+
+
+def _people_prop(pid, fmtid, name):
+    if fmtid in PEOPLE_PIDS:
+        return pid in PEOPLE_PIDS[fmtid]
+    if name:
+        return bool(PEOPLE_FIELD.match(name))
+    return False
+
+
+def _whiten_dib(buf, off):
+    """Paint a packed DIB (BITMAPINFOHEADER + pixels) at off white, in place."""
+    try:
+        hsize, w, h, planes, bpp = struct.unpack_from("<IiiHH", buf, off)
+        if hsize not in (40, 108, 124) or bpp not in (1, 4, 8, 16, 24, 32):
+            return buf
+        clr = struct.unpack_from("<I", buf, off + 32)[0]
+        pal = (clr or (1 << bpp)) * 4 if bpp <= 8 else 0
+        comp = struct.unpack_from("<I", buf, off + 16)[0]
+        if comp == 3:
+            pal = 12
+        start = off + hsize + pal
+        size = ((w * bpp + 31) // 32) * 4 * abs(h)
+        end = min(len(buf), start + size)
+        if end <= start:
+            return buf
+        b = bytearray(buf)
+        if bpp <= 8:
+            # point every pixel at the palette's last (usually white) entry
+            b[start:end] = b"\xff" * (end - start)
+        else:
+            b[start:end] = b"\xff" * (end - start)
+        return bytes(b)
+    except Exception:
+        return buf
+
+
+def _blank_propset_thumb(buf):
+    """Blank PIDSI_THUMBNAIL (VT_CF DIB) in a SummaryInformation stream."""
+    try:
+        nsec = struct.unpack_from("<I", buf, 24)[0]
+        if not nsec:
+            return buf
+        off = struct.unpack_from("<I", buf, 28 + 16)[0]
+        _size, n = struct.unpack_from("<II", buf, off)
+        for j in range(min(n, 200)):
+            pid, poff = struct.unpack_from("<II", buf, off + 8 + j * 8)
+            if pid != 17:
+                continue
+            p = off + poff
+            t = struct.unpack_from("<H", buf, p)[0]
+            if t != 71:
+                return buf
+            tag = struct.unpack_from("<i", buf, p + 8)[0]
+            if tag == -1:
+                cf = struct.unpack_from("<I", buf, p + 12)[0]
+                if cf == 8:  # CF_DIB
+                    return _whiten_dib(buf, p + 16)
+            return buf
+    except Exception:
+        return buf
+    return buf
 
 
 # SummaryInformation: 4 author, 8 last author ; DocSummary: 14 manager, 15 company
@@ -399,28 +496,17 @@ def ole(data, ctx, relpath):
             if ctx.collect is not None:
                 scan_generic(buf, ctx)
             continue
-        wanted = SUMMARY_PIDS.get(leaf)
         nb = bytearray(buf)
         touched = False
-        for off, ln, enc, pid, sec in _propset_values(buf):
-            if wanted is not None and pid not in wanted:
-                continue
-            if wanted is None and leaf not in ("\x05DocumentSummaryInformation",) and not leaf.startswith("\x05Qm4y") \
-                    and not leaf.startswith("\x05Zrxrt") and not leaf.startswith("\x05Ulr"):
+        for off, ln, enc, pid, fmtid, pname in _propset_values(buf):
+            if not _people_prop(pid, fmtid, pname):
                 continue
             raw = bytes(buf[off:off + ln])
             try:
                 txt = raw.decode(enc).split("\x00")[0]
             except Exception:
                 continue
-            if not txt.strip() or not any(c.isalpha() for c in txt):
-                continue
-            if wanted is None:
-                # unnamed custom / design-tracking strings: only people-looking values
-                if len(txt) > 60:
-                    continue
-                if ctx.collect is not None:
-                    continue
+            if not txt.strip() or not any(c.isalpha() for c in txt) or len(txt) > 120:
                 continue
             new = field_value(txt, ctx, local_terms)
             if ctx.collect is None and new != txt:
@@ -433,8 +519,15 @@ def ole(data, ctx, relpath):
     if ctx.collect is not None:
         return data
     lm = Matcher(local_terms) if local_terms else None
+    drawing = ext_of(relpath) in (".idw", ".slddrw", ".drwdot", ".dft", ".dwg", ".drw", ".drw.N", ".catdrawing")
     for name, buf in contents.items():
         cur = edits.get(name, buf)
+        if drawing:
+            leaf = name.split("/")[-1]
+            if leaf == "\x05SummaryInformation":
+                cur = _blank_propset_thumb(cur)
+            elif leaf in ("PreviewPNG", "Preview", "Thumbnail"):
+                cur = _blank_image(cur) if cur[:8] == b"\x89PNG\r\n\x1a\n" else _whiten_dib(cur, 0)
         new = generic(cur, ctx, lm)
         if new != buf:
             edits[name] = new
@@ -877,6 +970,39 @@ def z_container(data, ctx, relpath):
     return lzw.compress(new)
 
 
+def sevenz_container(data, ctx, relpath):
+    try:
+        import py7zr
+        with py7zr.SevenZipFile(io.BytesIO(data), "r") as z:
+            names = z.getnames()
+            files = z.readall() or {}
+    except Exception:
+        ctx.notes.append("7z:unreadable")
+        return generic(data, ctx)
+    newfiles = {}
+    for name in names:
+        bio = files.get(name)
+        content = bio.read() if bio is not None else None
+        if ctx.collect is not None:
+            if content is not None:
+                process(content, name, ctx)
+            continue
+        if content is None:
+            continue
+        newfiles[rename_rel(name, ctx)] = process(content, name, ctx)
+    if ctx.collect is not None:
+        return data
+    out = io.BytesIO()
+    try:
+        with py7zr.SevenZipFile(out, "w") as z:
+            for name, content in newfiles.items():
+                z.writestr(content, name)
+    except Exception as e:
+        ctx.notes.append(f"7z:write {e!r}")
+        return generic(data, ctx)
+    return out.getvalue()
+
+
 def rename_rel(rel, ctx):
     if ctx.rename:
         return ctx.rename(rel)
@@ -906,6 +1032,8 @@ def process(data, relpath, ctx):
             return gz_container(data, ctx, relpath)
         if head[:2] == b"\x1f\x9d":
             return z_container(data, ctx, relpath)
+        if head[:6] == b"7z\xbc\xaf\x27\x1c":
+            return sevenz_container(data, ctx, relpath)
         if ext == ".tar" or data[257:262] == b"ustar":
             return tar_container(data, ctx, relpath)
         if ext in (".step", ".stp", ".p21") or head.startswith(b"ISO-10303"):

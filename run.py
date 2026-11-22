@@ -108,7 +108,15 @@ def build_registry(paths, found_by_file, work):
         if len(local) >= 5 and not D.is_generic(local) and local.lower() not in (
                 "info", "support", "sales", "contact", "admin", "office", "hello", "mail", "service", "noreply"):
             terms.add(local)
+    weak = {v for (k, v) in counts if k == "field"}
+    every = set(terms) | set(loose) | weak | set(owners) | set(users)
+    for (k, v) in counts:
+        if k in ("field", "field_strong"):
+            every |= set(D.split_saved_by(v))
+    from deid.pseudo import assign
+    pmap = assign(every, reserved=every)
     reg = {
+        "pmap": pmap,
         "terms": sorted(terms),
         "loose": sorted(loose),
         "owners": sorted(owners),
@@ -182,6 +190,8 @@ def _load(work):
 def _init(work):
     global _M, _REG
     _REG = _load(work)
+    from deid import pseudo
+    pseudo.load_overrides(_REG.get("pmap", {}))
     _M = Matcher(_REG["terms"], _REG["loose"])
 
 

@@ -35,12 +35,52 @@ def _domain_like(k):
     return len(labels) >= 2 and labels[-1] in _KEEP_LABELS and all(labels)
 
 
+OVERRIDE = {}
+
+
+def load_overrides(m):
+    OVERRIDE.clear()
+    OVERRIDE.update(m)
+    _cache.clear()
+
+
+def assign(keys, reserved=()):
+    """Collision-free pseudonyms for a set of identities (deterministic)."""
+    used = {}
+    taken = {k.lower() for k in reserved}
+    out = {}
+    for k in sorted({k.lower() for k in keys}, key=lambda s: (len(s), s)):
+        p = _raw_base(k, 0)
+        n = 0
+        while (p in used and used[p] != k) or (p in taken and p != k):
+            n += 1
+            p = _raw_base(k, n)
+            if n > 50:
+                break
+        used[p] = k
+        if n:
+            out[k] = p
+    return out
+
+
+def _raw_base(k, n):
+    if n == 0:
+        return base_nocache(k)
+    return _skeleton(f"{k}#{n}", k) if not _domain_like(k) else base_nocache(k + f"#{n}")[: len(k)]
+
+
 def base(orig):
     """Lower-case pseudonym skeleton for orig (cached)."""
     k = orig.lower()
-    p = _cache.get(k)
+    p = OVERRIDE.get(k) or _cache.get(k)
     if p is not None:
         return p
+    p = base_nocache(k)
+    _cache[k] = p
+    return p
+
+
+def base_nocache(k):
     if _domain_like(k):
         # keep www/TLD labels so the result still reads as a host name
         local, at, dom = k.rpartition("@") if "@" in k else ("", "", k)
@@ -48,13 +88,9 @@ def base(orig):
         new = []
         for i, lab in enumerate(labels):
             keep = lab in _KEEP_LABELS and (i == 0 and lab == "www" or i >= len(labels) - 2 and i > 0)
-            new.append(lab if keep else _skeleton(f"{k}|{i}", lab))
-        p = (_skeleton(k + "|@", local) + "@" if at else "") + ".".join(new)
-        _cache[k] = p
-        return p
-    p = _skeleton(k, k)
-    _cache[k] = p
-    return p
+            new.append(lab if keep else base(lab))
+        return (base(local) + "@" if at else "") + ".".join(new)
+    return _skeleton(k, k)
 
 
 def _skeleton(seed, k):
